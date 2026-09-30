@@ -51,6 +51,10 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'django_filters',
     'drf_spectacular',
+    # Project Local Apps
+    'apps.accounts',
+    'apps.doctors',
+    'apps.appointments',
 ]
 
 MIDDLEWARE = [
