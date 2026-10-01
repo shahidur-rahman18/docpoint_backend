@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView # <-- 1. RedirectView import kora hoyeche
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -23,6 +24,10 @@ from drf_spectacular.views import (
 ) # ১. drf_spectacular থেকে Swagger ও Schema ভিউ ইম্পোর্ট করা হলো
 
 urlpatterns = [
+    # --- Root URL Redirect ---
+    # 2. Base domain ('') e visit korlei ekhon Swagger UI-te pathiye dibe
+
+    path('', RedirectView.as_view(url_name='swagger-ui', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/accounts/', include('apps.accounts.urls')),
     path('api/doctors/', include('apps.doctors.urls')),
