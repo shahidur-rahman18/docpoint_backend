@@ -146,11 +146,11 @@ MAILERS = {
 }
 
 
-
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema', # ১. DRF-এর জন্য Spectacular Schema ক্লাস নির্দেশ করা হলো
 }
 
 SIMPLE_JWT = {
@@ -159,4 +159,12 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'DocPoint API', # ১. Swagger UI পেজের প্রধান শিরোনাম
+    'DESCRIPTION': 'Smart Doctor Appointment & Chamber Booking API Backend Documentation', # ২. প্রজেক্টের সংক্ষিপ্ত বিবরণ
+    'VERSION': '1.0.0', # ৩. API ভার্সন
+    'SERVE_INCLUDE_SCHEMA': False, # ৪. স্কিমা এন্ডপয়েন্টকে নিজের ভেতরের তালিকায় পুনরাবৃত্তি হওয়া থেকে মুক্ত রাখে
 }

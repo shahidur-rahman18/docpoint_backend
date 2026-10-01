@@ -25,10 +25,13 @@ class Appointment(models.Model):
     time_slot_end = models.TimeField()
     symptoms_note = models.TextField(blank=True, null=True)
     total_fee = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # --- আপডেটকৃত অংশ (db_index=True যুক্ত করা হলো) ---
     status = models.CharField(
         max_length=20,
         choices=AppointmentStatus.choices,
-        default=AppointmentStatus.PENDING
+        default=AppointmentStatus.PENDING,
+        db_index=True # ১. স্ট্যাটাস ফিল্ড দিয়ে দ্রুত ফিল্টারিংয়ের জন্য ইনডেক্স যুক্ত করা হলো
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
