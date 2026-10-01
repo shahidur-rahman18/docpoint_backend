@@ -16,25 +16,25 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView # <-- 1. RedirectView import kora hoyeche
+from django.views.generic import RedirectView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
-) # ১. drf_spectacular থেকে Swagger ও Schema ভিউ ইম্পোর্ট করা হলো
+)
 
 urlpatterns = [
     # --- Root URL Redirect ---
-    # 2. Base domain ('') e visit korlei ekhon Swagger UI-te pathiye dibe
+    # url_name-এর জায়গায় pattern_name ব্যবহার করতে হবে
+    path('', RedirectView.as_view(pattern_name='swagger-ui', permanent=False)),
 
-    path('', RedirectView.as_view(url_name='swagger-ui', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/accounts/', include('apps.accounts.urls')),
     path('api/doctors/', include('apps.doctors.urls')),
     path('api/appointments/', include('apps.appointments.urls')),
 
     # --- API Documentation Endpoints ---
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'), # ২. Raw OpenAPI 3.0 schema zoneration endpoint
-    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'), # ৩. Swagger UI endpoint
-    path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'), # ৪. Redoc UI endpoint
-    ]
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+]
