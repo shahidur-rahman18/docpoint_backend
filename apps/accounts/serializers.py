@@ -6,7 +6,7 @@ from apps.accounts.models import PatientProfile
 User = get_user_model()
 
 
-class DoctorProfileSerializer(serializers.ModelSerializer):
+class AccountDoctorProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = DoctorProfile
         fields = ['id', 'specialization', 'qualification', 'consultation_fee', 'chamber_address', 'is_available']
@@ -36,7 +36,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    doctor_profile = DoctorProfileSerializer(read_only=True)
+    doctor_profile = AccountDoctorProfileSerializer(read_only=True)
     patient_profile = PatientProfileSerializer(read_only=True)
 
     class Meta:

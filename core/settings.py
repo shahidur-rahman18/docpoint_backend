@@ -139,11 +139,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+# MAILERS = {
+#     'default': {
+#         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+#     },
+# }
 
 
 REST_FRAMEWORK = {
@@ -168,3 +168,11 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0', # ৩. API ভার্সন
     'SERVE_INCLUDE_SCHEMA': False, # ৪. স্কিমা এন্ডপয়েন্টকে নিজের ভেতরের তালিকায় পুনরাবৃত্তি হওয়া থেকে মুক্ত রাখে
 }
+
+# Email Configuration (Django Standard SMTP Configuration)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' # ১. প্রডাকশন স্ট্যান্ডার্ড ইমেইল ব্যাকএন্ড
+EMAIL_HOST = 'smtp.gmail.com' # ২. আউটগোয়িং ইমেইল হোস্ট
+EMAIL_PORT = 587 # ৩. SMTP পোর্ট
+EMAIL_USE_TLS = True # ৪. ট্রান্সপোর্ট লেয়ার সিকিউরিটি এনাবল
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='') # ৫. ইমেইল ইউজারনেম
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='') # ৬. ইমেইল পাসওয়ার্ড
