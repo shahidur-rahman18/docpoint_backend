@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Appointment
 from apps.doctors.models import DoctorProfile
 from apps.doctors.serializers import DoctorProfileSerializer
+# dfhd
 
 class AppointmentSerializer(serializers.ModelSerializer):
     doctor_detail = DoctorProfileSerializer(source='doctor', read_only=True)
@@ -44,7 +45,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             time_slot_start__lt=proposed_end,
             time_slot_end__gt=proposed_start
         )
-
+   
         if self.instance:
             overlapping_appointments = overlapping_appointments.exclude(id=self.instance.id)
 
