@@ -173,7 +173,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Email Configuration (Django Standard SMTP Configuration)
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' # ১. প্রডাকশন স্ট্যান্ডার্ড ইমেইল ব্যাকএন্ড
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = 'smtp.gmail.com' # ২. আউটগোয়িং ইমেইল হোস্ট
 EMAIL_PORT = 587 # ৩. SMTP পোর্ট
 EMAIL_USE_TLS = True # ৪. ট্রান্সপোর্ট লেয়ার সিকিউরিটি এনাবল
