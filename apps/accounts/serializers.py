@@ -75,7 +75,7 @@ class AdminDoctorCreateSerializer(serializers.Serializer):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
 
-        setup_url = f"http://localhost:3000/setup-password?uid={uid}&token={token}"
+        setup_url = f"https://dockpoint-frontend.vercel.app/setup-password?uid={uid}&token={token}"
         subject = "Welcome to DocPoint - Set Your Doctor Password"
         message = f"Hello Dr. {email},\n\nYou have been registered as a doctor by the admin.\nPlease click the link below to set your password and activate your account:\n{setup_url}\n\nThank you!"
         
