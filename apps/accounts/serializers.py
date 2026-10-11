@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
@@ -8,6 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from apps.doctors.models import DoctorProfile
 from apps.accounts.models import PatientProfile
+from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
 
@@ -75,14 +78,11 @@ class AdminDoctorCreateSerializer(serializers.Serializer):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
 
-        setup_url = f"https://dockpoint-frontend.vercel.app/setup-password?uid={uid}&token={token}"
+        setup_url = f"{settings.FRONTEND_URL}/setup-password?{urlencode({'uid': uid, 'token': token})}"
         subject = "Welcome to DocPoint - Set Your Doctor Password"
         message = f"Hello Dr. {email},\n\nYou have been registered as a doctor by the admin.\nPlease click the link below to set your password and activate your account:\n{setup_url}\n\nThank you!"
-        
-        try:
-            send_mail(subject, message, getattr(settings, 'DEFAULT_FROM_EMAIL', 'admin@docpoint.com'), [email], fail_silently=True)
-        except Exception:
-            pass
+
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
 
         return user
 
@@ -102,12 +102,18 @@ class PasswordSetupSerializer(serializers.Serializer):
         except (TypeError, ValueError, OverflowError, User.DoesNotExist):
             raise serializers.ValidationError({"uid": "Invalid UID."})
 
+        if user.role != User.Role.DOCTOR:
+            raise serializers.ValidationError({
+                "uid": "Password setup is only available for doctor accounts."
+            })
+
         if not default_token_generator.check_token(user, token):
             raise serializers.ValidationError({"token": "Invalid or expired token."})
 
         attrs['user'] = user
         return attrs
 
+    @transaction.atomic
     def save(self):
         user = self.validated_data['user']
         new_password = self.validated_data['new_password']
@@ -115,7 +121,22 @@ class PasswordSetupSerializer(serializers.Serializer):
         user.is_active = True
         user.is_verified = True
         user.save()
-        return user
+
+        if user.role != User.Role.DOCTOR or not user.is_active:
+            raise serializers.ValidationError(
+                "Only active doctor accounts can receive setup tokens."
+            )
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        }
+
+
+class PasswordSetupTokenResponseSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

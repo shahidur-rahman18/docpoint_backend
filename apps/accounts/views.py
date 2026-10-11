@@ -1,9 +1,11 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 from django.contrib.auth import get_user_model
 from apps.accounts.serializers import (
     AdminDoctorCreateSerializer,
     PasswordSetupSerializer,
+    PasswordSetupTokenResponseSerializer,
     UserProfileSerializer
 )
 from apps.accounts.permissions import IsAdminRole
@@ -32,14 +34,12 @@ class PasswordSetupView(generics.GenericAPIView):
     serializer_class = PasswordSetupSerializer
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(responses={status.HTTP_200_OK: PasswordSetupTokenResponseSerializer})
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(
-            {"message": "Password set successfully and account activated. You can now login."},
-            status=status.HTTP_200_OK
-        )
+        tokens = serializer.save()
+        return Response(tokens, status=status.HTTP_200_OK)
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
