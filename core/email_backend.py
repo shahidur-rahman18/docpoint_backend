@@ -41,13 +41,13 @@ class ResendEmailBackend(BaseEmailBackend):
             for content, mimetype in message.alternatives:
                 if mimetype == 'text/html':
                     payload['html'] = content
-
             request = urllib.request.Request(
                 self.api_url,
                 data=json.dumps(payload).encode('utf-8'),
                 headers={
                     'Authorization': f'Bearer {self.api_key}',
                     'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 },
                 method='POST',
             )
