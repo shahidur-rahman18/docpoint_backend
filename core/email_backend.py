@@ -1,7 +1,6 @@
 import json
-from urllib.error import URLError
-from urllib.request import Request, urlopen
-
+import urllib.error
+import urllib.request
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.mail.backends.base import BaseEmailBackend
@@ -43,7 +42,7 @@ class ResendEmailBackend(BaseEmailBackend):
                 if mimetype == 'text/html':
                     payload['html'] = content
 
-            request = Request(
+            request = urllib.request.Request(
                 self.api_url,
                 data=json.dumps(payload).encode('utf-8'),
                 headers={
@@ -53,9 +52,16 @@ class ResendEmailBackend(BaseEmailBackend):
                 method='POST',
             )
             try:
-                with urlopen(request, timeout=10):
+                with urllib.request.urlopen(request, timeout=10):
                     sent_count += 1
-            except (URLError, TimeoutError, OSError):
+            except urllib.error.HTTPError as e:
+                # Resend থেকে আসা আসল এরর মেসেজ কনসোলে প্রিন্ট করার জন্য
+                error_body = e.read().decode('utf-8')
+                print(f"\n[Resend API Error] Code {e.code}: {error_body}\n")
+                if not self.fail_silently:
+                    raise
+            except Exception as e:
+                print(f"\n[Email Backend Error]: {str(e)}\n")
                 if not self.fail_silently:
                     raise
 
