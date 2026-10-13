@@ -145,5 +145,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'role', 'phone_number', 'is_verified', 'doctor_profile', 'patient_profile']
+        fields = [
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'role',
+            'phone_number',
+            'is_verified',
+            'doctor_profile',
+            'patient_profile',
+        ]
         read_only_fields = ['id', 'email', 'role', 'is_verified']

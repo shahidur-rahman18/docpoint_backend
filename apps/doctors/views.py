@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from .models import DoctorProfile
 from .serializers import DoctorProfileSerializer
@@ -26,6 +27,10 @@ class IsDoctorOwnerOrAdmin(permissions.BasePermission):
         return obj.user == request.user
 
 
+@extend_schema_view(
+    list=extend_schema(auth=[]),
+    retrieve=extend_schema(auth=[]),
+)
 class DoctorProfileViewSet(viewsets.ModelViewSet):
     queryset = DoctorProfile.objects.select_related('user').all()
     serializer_class = DoctorProfileSerializer
