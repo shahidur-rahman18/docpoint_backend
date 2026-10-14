@@ -1,18 +1,33 @@
+import logging
 from urllib.parse import urlencode
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.db import DatabaseError
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
 from django.conf import settings
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
+from apps.accounts.avatar_storage import AvatarStorageUnavailable, delete_avatar, upload_avatar
 from apps.doctors.models import DoctorProfile
 from apps.accounts.models import PatientProfile
 from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
+MAX_AVATAR_DIMENSION = 4096
+ALLOWED_AVATAR_FORMATS = {'JPEG', 'PNG', 'WEBP'}
+
+
+class AvatarImageField(serializers.ImageField):
+    def to_internal_value(self, data):
+        if getattr(data, 'size', 0) > MAX_AVATAR_SIZE:
+            raise ValidationError('Avatar image must be 5 MB or smaller.')
+        return super().to_internal_value(data)
 
 
 class AccountDoctorProfileSerializer(serializers.ModelSerializer):
@@ -142,6 +157,8 @@ class PasswordSetupTokenResponseSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     doctor_profile = AccountDoctorProfileSerializer(read_only=True)
     patient_profile = PatientProfileSerializer(read_only=True)
+    avatar = AvatarImageField(write_only=True, required=False, allow_null=True)
+    avatar_url = serializers.URLField(read_only=True, allow_null=True)
 
     class Meta:
         model = User
@@ -152,8 +169,61 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'last_name',
             'role',
             'phone_number',
+            'avatar',
+            'avatar_url',
             'is_verified',
             'doctor_profile',
             'patient_profile',
         ]
         read_only_fields = ['id', 'email', 'role', 'is_verified']
+
+    def validate_avatar(self, image):
+        if image is None:
+            return image
+
+        if image.image.format not in ALLOWED_AVATAR_FORMATS:
+            raise ValidationError('Use a JPEG, PNG, or WebP image.')
+
+        width, height = image.image.size
+        if width > MAX_AVATAR_DIMENSION or height > MAX_AVATAR_DIMENSION:
+            raise ValidationError('Avatar dimensions must not exceed 4096 by 4096 pixels.')
+
+        return image
+
+    def update(self, instance, validated_data):
+        avatar = validated_data.pop('avatar', serializers.empty)
+        previous_public_id = instance.avatar_public_id
+        uploaded_public_id = None
+
+        if avatar is not serializers.empty:
+            if avatar is None:
+                validated_data['avatar_url'] = None
+                validated_data['avatar_public_id'] = None
+            else:
+                avatar_url, uploaded_public_id = upload_avatar(avatar, instance.pk)
+                validated_data['avatar_url'] = avatar_url
+                validated_data['avatar_public_id'] = uploaded_public_id
+
+        try:
+            updated_user = super().update(instance, validated_data)
+        except DatabaseError:
+            if uploaded_public_id:
+                try:
+                    delete_avatar(uploaded_public_id, instance.pk)
+                except AvatarStorageUnavailable:
+                    logger.exception(
+                        'Could not clean up failed avatar upload for user %s.',
+                        instance.pk,
+                    )
+            raise
+
+        if previous_public_id and previous_public_id != updated_user.avatar_public_id:
+            try:
+                delete_avatar(previous_public_id, instance.pk)
+            except AvatarStorageUnavailable:
+                logger.exception(
+                    'Could not remove replaced avatar for user %s.',
+                    instance.pk,
+                )
+
+        return updated_user

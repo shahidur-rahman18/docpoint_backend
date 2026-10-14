@@ -44,6 +44,8 @@ class CustomUser(AbstractUser):
         default=Role.PATIENT
     )
     phone_number = models.CharField(max_length=15, blank=True, null=True)
+    avatar_url = models.URLField(max_length=1000, blank=True, null=True)
+    avatar_public_id = models.CharField(max_length=255, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = 'email'

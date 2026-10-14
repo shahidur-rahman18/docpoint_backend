@@ -64,6 +64,11 @@ INSTALLED_APPS = [
     'apps.appointments',
 ]
 
+CLOUDINARY_CLOUD_NAME = env('CLOUDINARY_CLOUD_NAME', default='')
+CLOUDINARY_API_KEY = env('CLOUDINARY_API_KEY', default='')
+CLOUDINARY_API_SECRET = env('CLOUDINARY_API_SECRET', default='')
+CLOUDINARY_SECURE = env.bool('CLOUDINARY_SECURE', default=True)
+
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 MIDDLEWARE = [
