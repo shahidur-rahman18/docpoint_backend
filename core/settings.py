@@ -83,9 +83,14 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
-    default=['http://localhost:5173'],
+    default=['http://localhost:5173', 'http://127.0.0.1:5173'],
+)
+CSRF_TRUSTED_ORIGINS = env.list(
+    'CSRF_TRUSTED_ORIGINS',
+    default=['http://localhost:5173', 'http://127.0.0.1:5173'],
 )
 
 ROOT_URLCONF = 'core.urls'
@@ -166,7 +171,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'  # <--- এই লাইনটি যো�
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.accounts.authentication.CookieJWTAuthentication',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema', # ১. DRF-এর জন্য Spectacular Schema ক্লাস নির্দেশ করা হলো
 }
