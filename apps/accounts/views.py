@@ -88,10 +88,12 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 path='/'
             )
 
-            # সিকিউরিটি বাড়ানোর জন্য রেসপন্স বডি থেকে টোকেনগুলো সরিয়ে দেওয়া হলো
+            # কুকির পাশাপাশি বডিতেও টোকেন রিটার্ন করা হচ্ছে (হাইব্রিড সাপোর্ট)
             response.data = {
                 "success": True,
-                "message": "Login successful"
+                "message": "Login successful",
+                "access": access_token,
+                "refresh": refresh_token,
             }
 
         return response
@@ -101,12 +103,12 @@ class CookieTokenObtainPairView(TokenObtainPairView):
 
 class CookieTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
-        # রিকোয়েস্ট কুকি থেকে refresh_token নিয়ে সেটাকে request.data তে যুক্ত করা হচ্ছে
-        refresh_token = request.COOKIES.get('refresh_token')
+        # রিকোয়েস্ট কুকি অথবা রিকোয়েস্ট বডি থেকে refresh_token গ্রহণ করা হচ্ছে
+        refresh_token = request.COOKIES.get('refresh_token') or request.data.get('refresh')
 
         if refresh_token:
             request.data['refresh'] = refresh_token
-        elif not request.data.get('refresh'):
+        else:
             return Response(
                 {"detail": "Refresh token is missing or expired."},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -132,10 +134,11 @@ class CookieTokenRefreshView(TokenRefreshView):
                 path='/'
             )
 
-            # বডি থেকে অ্যাক্সেস টোকেন সরিয়ে সফলতার মেসেজ দেওয়া হচ্ছে
+            # কুকির পাশাপাশি বডিতেও নতুন অ্যাক্সেস টোকেন দেওয়া হচ্ছে
             response.data = {
                 "success": True,
-                "message": "Token refreshed successfully"
+                "message": "Token refreshed successfully",
+                "access": new_access_token,
             }
 
         return response
