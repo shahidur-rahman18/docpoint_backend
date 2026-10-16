@@ -64,13 +64,16 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             refresh_token = data.get('refresh')
             access_token = data.get('access')
 
+            is_prod = not settings.DEBUG
+            samesite_val = 'None' if is_prod else 'Lax'
+
             # HttpOnly কুকি সেট করা হচ্ছে
             response.set_cookie(
                 key='refresh_token',
                 value=refresh_token,
                 httponly=True,
-                secure=not settings.DEBUG,  # প্রোডাকশনে HTTPS থাকলে True হবে, লোকালহোস্টে HTTP এর জন্য False থাকবে
-                samesite='Lax',
+                secure=is_prod,  # প্রোডাকশনে HTTPS থাকলে True হবে, লোকালহোস্টে HTTP এর জন্য False থাকবে
+                samesite=samesite_val,  # প্রোডাকশনে ক্রস-ডোমেনের জন্য None, লোকালে Lax
                 max_age=7 * 24 * 60 * 60,  # ৭ দিন
                 path='/'
             )
@@ -79,8 +82,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 key='access_token',
                 value=access_token,
                 httponly=True,
-                secure=not settings.DEBUG,
-                samesite='Lax',
+                secure=is_prod,
+                samesite=samesite_val,
                 max_age=30 * 60,  # ৩০ মিনিট
                 path='/'
             )
@@ -115,13 +118,16 @@ class CookieTokenRefreshView(TokenRefreshView):
             data = response.data
             new_access_token = data.get('access')
 
+            is_prod = not settings.DEBUG
+            samesite_val = 'None' if is_prod else 'Lax'
+
             # নতুন access_token কে আবার HttpOnly কুকি হিসেবে সেট করা হচ্ছে
             response.set_cookie(
                 key='access_token',
                 value=new_access_token,
                 httponly=True,
-                secure=not settings.DEBUG,
-                samesite='Lax',
+                secure=is_prod,
+                samesite=samesite_val,
                 max_age=30 * 60,  # ৩০ মিনিট
                 path='/'
             )
@@ -144,7 +150,9 @@ class LogoutView(APIView):
             {"success": True, "message": "Logged out successfully"},
             status=status.HTTP_200_OK
         )
+        is_prod = not settings.DEBUG
+        samesite_val = 'None' if is_prod else 'Lax'
         # ব্রাউজার থেকে কুকিগুলো মুছে ফেলা হচ্ছে
-        response.delete_cookie('access_token', path='/')
-        response.delete_cookie('refresh_token', path='/')
+        response.delete_cookie('access_token', path='/', samesite=samesite_val)
+        response.delete_cookie('refresh_token', path='/', samesite=samesite_val)
         return response
