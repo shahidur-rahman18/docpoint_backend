@@ -89,7 +89,7 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=[
         'http://localhost:5173',
         'http://127.0.0.1:5173',
-        'https://dockpoint-frontend.vercel.app',
+        'https://dockpoint.shaidur.me',
     ],
 )
 CSRF_TRUSTED_ORIGINS = env.list(
@@ -97,7 +97,7 @@ CSRF_TRUSTED_ORIGINS = env.list(
     default=[
         'http://localhost:5173',
         'http://127.0.0.1:5173',
-        'https://dockpoint-frontend.vercel.app',
+        'https://dockpoint.shaidur.me',
     ],
 )
 
