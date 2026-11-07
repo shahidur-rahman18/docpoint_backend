@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from PIL import Image
 
-from apps.accounts.models import CustomUser
+from apps.accounts.models import CustomUser, PatientProfile
 from apps.accounts.serializers import AdminDoctorCreateSerializer
 from apps.appointments.models import Appointment
 from apps.doctors.models import DoctorProfile
@@ -321,7 +321,7 @@ class SeedDemoDataTests(TestCase):
 
     @patch.dict(os.environ, seed_environment)
     @override_settings(DEBUG=False)
-    def test_seed_creates_demo_accounts_profiles_and_appointment_idempotently(self):
+    def test_seed_creates_demo_accounts_profiles_and_appointments_idempotently(self):
         call_command("seed_demo_data", "--allow-production", stdout=StringIO())
         call_command("seed_demo_data", "--allow-production", stdout=StringIO())
 
@@ -341,8 +341,13 @@ class SeedDemoDataTests(TestCase):
         self.assertTrue(DoctorProfile.objects.filter(user=doctor).exists())
         self.assertTrue(patient.patient_profile)
         self.assertFalse(patient.has_usable_password())
-        self.assertEqual(CustomUser.objects.count(), 3)
-        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertTrue(admin.avatar_url.startswith("https://images.unsplash.com/"))
+        self.assertTrue(doctor.avatar_url.startswith("https://images.unsplash.com/"))
+        self.assertTrue(patient.avatar_url.startswith("https://images.unsplash.com/"))
+        self.assertEqual(CustomUser.objects.count(), 41)
+        self.assertEqual(DoctorProfile.objects.count(), 20)
+        self.assertEqual(PatientProfile.objects.count(), 20)
+        self.assertEqual(Appointment.objects.count(), 20)
 
     @override_settings(DEBUG=False)
     def test_production_database_requires_explicit_confirmation(self):
@@ -350,3 +355,11 @@ class SeedDemoDataTests(TestCase):
             call_command("seed_demo_data")
 
         self.assertEqual(CustomUser.objects.count(), 0)
+
+    @override_settings(
+        DEBUG=True,
+        DATABASES={"default": {"HOST": "remote.example.test"}},
+    )
+    def test_remote_database_requires_explicit_confirmation_even_with_debug(self):
+        with self.assertRaisesMessage(CommandError, "--allow-production"):
+            call_command("seed_demo_data")
