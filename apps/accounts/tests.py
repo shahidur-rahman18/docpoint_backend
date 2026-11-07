@@ -1,9 +1,11 @@
 from datetime import timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
+import os
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.core import mail
+from django.core.management import call_command, CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.tokens import default_token_generator
 from django.urls import reverse
@@ -17,6 +19,8 @@ from PIL import Image
 
 from apps.accounts.models import CustomUser
 from apps.accounts.serializers import AdminDoctorCreateSerializer
+from apps.appointments.models import Appointment
+from apps.doctors.models import DoctorProfile
 
 
 class AvatarProfileApiTests(TestCase):
@@ -304,3 +308,45 @@ class PasswordSetupTokenTests(TestCase):
 
         self.user.refresh_from_db()
         self.assertFalse(self.user.is_active)
+
+
+class SeedDemoDataTests(TestCase):
+    seed_environment = {
+        "DEMO_ADMIN_EMAIL": "demo-admin@example.test",
+        "DEMO_ADMIN_PASSWORD": "safe-demo-admin-password",
+        "DEMO_DOCTOR_EMAIL": "demo-doctor@example.test",
+        "DEMO_DOCTOR_PASSWORD": "safe-demo-doctor-password",
+        "DEMO_PATIENT_EMAIL": "demo-patient@example.test",
+    }
+
+    @patch.dict(os.environ, seed_environment)
+    @override_settings(DEBUG=False)
+    def test_seed_creates_demo_accounts_profiles_and_appointment_idempotently(self):
+        call_command("seed_demo_data", "--allow-production", stdout=StringIO())
+        call_command("seed_demo_data", "--allow-production", stdout=StringIO())
+
+        admin = CustomUser.objects.get(email=self.seed_environment["DEMO_ADMIN_EMAIL"])
+        doctor = CustomUser.objects.get(email=self.seed_environment["DEMO_DOCTOR_EMAIL"])
+        patient = CustomUser.objects.get(email=self.seed_environment["DEMO_PATIENT_EMAIL"])
+
+        self.assertEqual(admin.role, CustomUser.Role.ADMIN)
+        self.assertTrue(admin.check_password(self.seed_environment["DEMO_ADMIN_PASSWORD"]))
+        self.assertTrue(admin.is_active)
+        self.assertTrue(admin.is_verified)
+        self.assertFalse(admin.is_superuser)
+        self.assertEqual(doctor.role, CustomUser.Role.DOCTOR)
+        self.assertTrue(doctor.check_password(self.seed_environment["DEMO_DOCTOR_PASSWORD"]))
+        self.assertTrue(doctor.is_active)
+        self.assertTrue(doctor.is_verified)
+        self.assertTrue(DoctorProfile.objects.filter(user=doctor).exists())
+        self.assertTrue(patient.patient_profile)
+        self.assertFalse(patient.has_usable_password())
+        self.assertEqual(CustomUser.objects.count(), 3)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    @override_settings(DEBUG=False)
+    def test_production_database_requires_explicit_confirmation(self):
+        with self.assertRaisesMessage(CommandError, "--allow-production"):
+            call_command("seed_demo_data")
+
+        self.assertEqual(CustomUser.objects.count(), 0)
