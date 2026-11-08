@@ -37,8 +37,21 @@ class IsDoctorOwnerOrAdmin(permissions.BasePermission):
 
 
 @extend_schema_view(
-    list=extend_schema(auth=[]),
-    retrieve=extend_schema(auth=[]),
+    list=extend_schema(
+        auth=[],
+        tags=['Doctors'],
+        summary='List doctors',
+        description='Search and filter the publicly available doctor profiles.',
+    ),
+    retrieve=extend_schema(
+        auth=[],
+        tags=['Doctors'],
+        summary='Get a doctor profile',
+    ),
+    create=extend_schema(tags=['Doctors'], summary='Create a doctor profile'),
+    update=extend_schema(tags=['Doctors'], summary='Replace a doctor profile'),
+    partial_update=extend_schema(tags=['Doctors'], summary='Update a doctor profile'),
+    destroy=extend_schema(tags=['Doctors'], summary='Delete a doctor profile'),
 )
 class DoctorProfileViewSet(viewsets.ModelViewSet):
     queryset = DoctorProfile.objects.select_related('user').all()

@@ -9,18 +9,352 @@ from django.core.management import call_command, CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.tokens import default_token_generator
 from django.urls import reverse
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from PIL import Image
 
-from apps.accounts.models import CustomUser, PatientProfile
-from apps.accounts.serializers import AdminDoctorCreateSerializer
+from apps.accounts.models import CustomUser, EmailVerificationOTP, PatientProfile
+from apps.accounts.emails import send_password_reset_email, send_patient_verification_otp
+from apps.accounts.serializers import (
+    AdminDoctorCreateSerializer,
+    EmailVerifySerializer,
+    ForgotPasswordSerializer,
+    PatientSignupSerializer,
+    PasswordChangeSerializer,
+    PasswordResetConfirmSerializer,
+    ResendOTPSerializer,
+)
+from apps.accounts.views import (
+    EmailVerifyView,
+    ForgotPasswordView,
+    MedicalRecordDetailView,
+    MedicalRecordListCreateView,
+    PasswordChangeView,
+    PasswordResetConfirmView,
+    PatientProfileView,
+    PatientSignupView,
+    ResendOTPView,
+)
 from apps.appointments.models import Appointment
 from apps.doctors.models import DoctorProfile
+from apps.accounts.models import MedicalRecord
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='sender@example.com',
+)
+class AccountEmailTests(SimpleTestCase):
+    def test_sends_patient_verification_otp(self):
+        send_patient_verification_otp('patient@example.com', '123456')
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['patient@example.com'])
+        self.assertIn('123456', mail.outbox[0].body)
+        self.assertIn('10 minutes', mail.outbox[0].body)
+
+    def test_sends_password_reset_link(self):
+        reset_url = 'https://frontend.example/reset-password?uid=1&token=abc'
+        send_password_reset_email('patient@example.com', reset_url)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['patient@example.com'])
+        self.assertIn(reset_url, mail.outbox[0].body)
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='sender@example.com',
+    FRONTEND_URL='https://frontend.example',
+)
+class PatientAccountSerializerTests(TestCase):
+    def test_signup_applies_django_password_validators(self):
+        serializer = PatientSignupSerializer(data={
+            'email': 'patient@example.com',
+            'password': 'patient@example.com',
+        })
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('password', serializer.errors)
+
+    def test_signup_creates_inactive_patient_and_sends_otp(self):
+        serializer = PatientSignupSerializer(data={
+            'email': 'patient@example.com',
+            'password': 'Safe-patient-password-123',
+            'first_name': 'Patient',
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        user = serializer.save()
+
+        self.assertEqual(user.role, CustomUser.Role.PATIENT)
+        self.assertFalse(user.is_active)
+        self.assertFalse(user.is_verified)
+        self.assertTrue(user.patient_profile)
+        otp = EmailVerificationOTP.objects.get(user=user)
+        self.assertEqual(len(otp.otp_code), 6)
+        self.assertIn(otp.otp_code, mail.outbox[0].body)
+
+    def test_email_verification_activates_user_and_returns_tokens(self):
+        user, otp = self.create_unverified_patient()
+        serializer = EmailVerifySerializer(data={
+            'email': user.email,
+            'otp': otp.otp_code,
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        tokens = serializer.save()
+
+        user.refresh_from_db()
+        otp.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertTrue(user.is_verified)
+        self.assertTrue(otp.is_used)
+        self.assertEqual(set(tokens), {'access', 'refresh'})
+
+    def test_expired_otp_is_rejected(self):
+        user, otp = self.create_unverified_patient()
+        otp.expires_at = timezone.now() - timedelta(minutes=1)
+        otp.save(update_fields=['expires_at'])
+
+        serializer = EmailVerifySerializer(data={
+            'email': user.email,
+            'otp': otp.otp_code,
+        })
+        self.assertFalse(serializer.is_valid())
+
+    def test_resend_invalidates_previous_otp(self):
+        user, old_otp = self.create_unverified_patient()
+        serializer = ResendOTPSerializer(data={'email': user.email})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        old_otp.refresh_from_db()
+        self.assertTrue(old_otp.is_used)
+        self.assertEqual(EmailVerificationOTP.objects.filter(user=user, is_used=False).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_forgot_password_sends_reset_link_and_reset_changes_password(self):
+        user = CustomUser.objects.create_user(
+            email='patient@example.com',
+            password='Old-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+        forgot = ForgotPasswordSerializer(data={'email': user.email})
+        self.assertTrue(forgot.is_valid(), forgot.errors)
+        forgot.save()
+
+        self.assertEqual(len(mail.outbox), 1)
+        reset_url = next(
+            line for line in mail.outbox[0].body.splitlines()
+            if line.startswith('https://frontend.example/reset-password?')
+        )
+        query = parse_qs(urlsplit(reset_url).query)
+        reset = PasswordResetConfirmSerializer(data={
+            'uid': query['uid'][0],
+            'token': query['token'][0],
+            'new_password': 'New-patient-password-456',
+        })
+        self.assertTrue(reset.is_valid(), reset.errors)
+        reset.save()
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('New-patient-password-456'))
+
+    def test_password_change_checks_current_password(self):
+        user = CustomUser.objects.create_user(
+            email='patient@example.com',
+            password='Old-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+        request = type('Request', (), {'user': user})()
+        serializer = PasswordChangeSerializer(
+            data={
+                'old_password': 'Old-patient-password-123',
+                'new_password': 'New-patient-password-456',
+            },
+            context={'request': request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('New-patient-password-456'))
+
+    def create_unverified_patient(self):
+        user = CustomUser.objects.create_user(
+            email='patient@example.com',
+            password='Safe-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+            is_active=False,
+            is_verified=False,
+        )
+        otp = EmailVerificationOTP.objects.create(
+            user=user,
+            otp_code='123456',
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        return user, otp
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='sender@example.com',
+    FRONTEND_URL='https://frontend.example',
+)
+class PatientAccountViewTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = CustomUser.objects.create_user(
+            email='patient@example.com',
+            password='Old-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+
+    def call_view(self, view, method='post', data=None, user=None, **kwargs):
+        request = getattr(self.factory, method)(
+            '/api/accounts/patient/',
+            data=data or {},
+            format='json',
+        )
+        if user is not None:
+            force_authenticate(request, user=user)
+        return view.as_view()(request, **kwargs)
+
+    def test_signup_view_returns_created(self):
+        response = self.call_view(PatientSignupView, data={
+            'email': 'new-patient@example.com',
+            'password': 'Safe-patient-password-123',
+        })
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            CustomUser.objects.filter(
+                email='new-patient@example.com',
+                is_active=False,
+            ).exists()
+        )
+
+    def test_email_verify_view_sets_auth_cookies(self):
+        user = CustomUser.objects.create_user(
+            email='unverified@example.com',
+            password='Safe-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+            is_active=False,
+            is_verified=False,
+        )
+        otp = EmailVerificationOTP.objects.create(
+            user=user,
+            otp_code='123456',
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        response = self.call_view(EmailVerifyView, data={
+            'email': user.email,
+            'otp': otp.otp_code,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('access_token', response.cookies)
+        self.assertIn('refresh_token', response.cookies)
+
+    def test_resend_otp_view_returns_generic_response(self):
+        response = self.call_view(ResendOTPView, data={'email': 'unknown@example.com'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data['message'],
+            'If the account needs verification, a code has been sent.',
+        )
+
+    def test_forgot_password_view_returns_generic_response(self):
+        response = self.call_view(ForgotPasswordView, data={'email': 'unknown@example.com'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data['message'],
+            'If the account exists, a password reset email has been sent.',
+        )
+
+    def test_password_reset_confirm_view_resets_password(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+        response = self.call_view(PasswordResetConfirmView, data={
+            'uid': uid,
+            'token': token,
+            'new_password': 'New-patient-password-456',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('New-patient-password-456'))
+
+    def test_password_change_view_requires_authentication_and_changes_password(self):
+        unauthenticated = self.call_view(PasswordChangeView, data={})
+        self.assertEqual(unauthenticated.status_code, 401)
+
+        response = self.call_view(
+            PasswordChangeView,
+            data={
+                'old_password': 'Old-patient-password-123',
+                'new_password': 'New-patient-password-456',
+            },
+            user=self.user,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('New-patient-password-456'))
+
+    def test_patient_profile_view_updates_only_own_profile(self):
+        response = self.call_view(
+            PatientProfileView,
+            method='patch',
+            data={'address': 'Dhaka'},
+            user=self.user,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.user.patient_profile.address, 'Dhaka')
+
+    def test_medical_record_views_scope_records_to_authenticated_patient(self):
+        response = self.call_view(
+            MedicalRecordListCreateView,
+            data={
+                'title': 'Blood test',
+                'recorded_at': '2026-11-08',
+                'document_url': 'https://example.com/report.pdf',
+            },
+            user=self.user,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        record = MedicalRecord.objects.get()
+        self.assertEqual(record.patient, self.user.patient_profile)
+
+        detail = self.call_view(
+            MedicalRecordDetailView,
+            method='get',
+            user=self.user,
+            pk=record.pk,
+        )
+        self.assertEqual(detail.status_code, 200)
+
+        other_user = CustomUser.objects.create_user(
+            email='other-patient@example.com',
+            password='Other-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+        other_detail = self.call_view(
+            MedicalRecordDetailView,
+            method='get',
+            user=other_user,
+            pk=record.pk,
+        )
+        self.assertEqual(other_detail.status_code, 404)
 
 
 class AvatarProfileApiTests(TestCase):

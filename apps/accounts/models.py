@@ -58,12 +58,66 @@ class CustomUser(AbstractUser):
 
 
 class PatientProfile(models.Model):
+    class BloodGroup(models.TextChoices):
+        A_POS = 'A+', 'A+'
+        A_NEG = 'A-', 'A-'
+        B_POS = 'B+', 'B+'
+        B_NEG = 'B-', 'B-'
+        AB_POS = 'AB+', 'AB+'
+        AB_NEG = 'AB-', 'AB-'
+        O_POS = 'O+', 'O+'
+        O_NEG = 'O-', 'O-'
+
+    class Gender(models.TextChoices):
+        MALE = 'MALE', 'Male'
+        FEMALE = 'FEMALE', 'Female'
+        OTHER = 'OTHER', 'Other'
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='patient_profile'
     )
     emergency_contact = models.CharField(max_length=15, blank=True, null=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    gender = models.CharField(max_length=10, choices=Gender.choices, blank=True)
+    blood_group = models.CharField(max_length=3, choices=BloodGroup.choices, blank=True)
+    address = models.TextField(blank=True)
 
     def __str__(self):
         return f"Patient: {self.user.email}"
+
+
+class MedicalRecord(models.Model):
+    patient = models.ForeignKey(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name='medical_records'
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    document_url = models.URLField(blank=True)
+    document_public_id = models.CharField(max_length=255, blank=True)
+    recorded_at = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.title} - {self.patient.user.email}"
+
+
+class EmailVerificationOTP(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='email_verification_otps'
+    )
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    def is_valid(self):
+        from django.utils import timezone
+
+        return not self.is_used and timezone.now() < self.expires_at

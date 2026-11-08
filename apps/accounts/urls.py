@@ -1,20 +1,38 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
-# ১. ডিফল্ট TokenObtainPairView বাদ দিয়ে আমদের কাস্টম CookieTokenObtainPairView ইমপোর্ট করতে হবে
 from apps.accounts.views import (
     AdminDoctorCreateView,
     PasswordSetupView,
+    PatientSignupView,
+    EmailVerifyView,
+    ResendOTPView,
+    ForgotPasswordView,
+    PasswordResetConfirmView,
+    PasswordChangeView,
+    PatientProfileView,
+    MedicalRecordListCreateView,
+    MedicalRecordDetailView,
     UserProfileView,
     CookieTokenObtainPairView,
     CookieTokenRefreshView,
-    LogoutView
+    LogoutView,
 )
 
 urlpatterns = [
     path('admin/doctors/create/', AdminDoctorCreateView.as_view(), name='admin_doctor_create'),
     path('setup-password/', PasswordSetupView.as_view(), name='password_setup'),
-
-    # ২. এখানে ডিফল্ট ভিউয়ের জায়গায় আমাদের কাস্টম কুকি ভিউ বসানো হলো
+    path('patient/signup/', PatientSignupView.as_view(), name='patient_signup'),
+    path('patient/verify-email/', EmailVerifyView.as_view(), name='patient_verify_email'),
+    path('patient/resend-otp/', ResendOTPView.as_view(), name='patient_resend_otp'),
+    path('password/forgot/', ForgotPasswordView.as_view(), name='password_forgot'),
+    path('password/reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    path('password/change/', PasswordChangeView.as_view(), name='password_change'),
+    path('patient/profile/', PatientProfileView.as_view(), name='patient_profile'),
+    path('patient/medical-history/', MedicalRecordListCreateView.as_view(), name='patient_medical_history'),
+    path(
+        'patient/medical-history/<int:pk>/',
+        MedicalRecordDetailView.as_view(),
+        name='patient_medical_record_detail',
+    ),
     path('login/', CookieTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='logout'),

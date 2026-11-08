@@ -194,10 +194,18 @@ SIMPLE_JWT = {
 
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'DocPoint API', # ১. Swagger UI পেজের প্রধান শিরোনাম
-    'DESCRIPTION': 'Smart Doctor Appointment & Chamber Booking API Backend Documentation', # ২. প্রজেক্টের সংক্ষিপ্ত বিবরণ
-    'VERSION': '1.0.0', # ৩. API ভার্সন
-    'SERVE_INCLUDE_SCHEMA': False, # ৪. স্কিমা এন্ডপয়েন্টকে নিজের ভেতরের তালিকায় পুনরাবৃত্তি হওয়া থেকে মুক্ত রাখে
+    'TITLE': 'DocPoint API',
+    'DESCRIPTION': 'API documentation for DocPoint doctor discovery, appointments, and patient accounts.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SORT_OPERATIONS': True,
+    'TAGS': [
+        {'name': 'Authentication', 'description': 'Patient registration, email verification, login, and password flows.'},
+        {'name': 'Accounts', 'description': 'Authenticated user account and profile operations.'},
+        {'name': 'Patients', 'description': 'Patient profile and medical record operations.'},
+        {'name': 'Doctors', 'description': 'Doctor profile discovery and doctor account management.'},
+        {'name': 'Appointments', 'description': 'Appointment booking and management.'},
+    ],
 }
 
 # Email Configuration
