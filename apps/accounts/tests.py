@@ -753,6 +753,10 @@ class SeedDemoDataTests(TestCase):
         self.assertEqual(DoctorProfile.objects.count(), 20)
         self.assertEqual(PatientProfile.objects.count(), 20)
         self.assertEqual(Appointment.objects.count(), 20)
+        self.assertEqual(
+            Appointment.objects.filter(doctor=doctor.doctor_profile).count(),
+            20,
+        )
 
     @override_settings(DEBUG=False)
     def test_production_database_requires_explicit_confirmation(self):

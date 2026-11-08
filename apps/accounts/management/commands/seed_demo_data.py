@@ -136,20 +136,18 @@ class Command(BaseCommand):
                     doctors.append(doctor_profile)
                     patients.append(patient_user)
 
-                for index, (doctor_profile, patient_user) in enumerate(
-                    zip(doctors, patients)
-                ):
+                demo_doctor = doctors[0]
+                for index, patient_user in enumerate(patients):
                     appointment_date = timezone.localdate() + timedelta(days=index + 1)
                     appointment_lookup = {
                         "patient": patient_user,
-                        "doctor": doctor_profile,
                         "symptoms_note": DEMO_APPOINTMENT_NOTE,
                     }
                     seeded_appointment = Appointment.objects.filter(
                         **appointment_lookup
                     ).first()
                     overlapping_appointments = Appointment.objects.filter(
-                        doctor=doctor_profile,
+                        doctor=demo_doctor,
                         appointment_date=appointment_date,
                         status__in=[
                             Appointment.AppointmentStatus.PENDING,
@@ -165,16 +163,17 @@ class Command(BaseCommand):
                     if overlapping_appointments.exists():
                         raise CommandError(
                             "A demo appointment's 10:00-10:30 slot is already booked. "
-                            f"Free the slot for doctor {index + 1} first."
+                            "Free the slot for the demo doctor first."
                         )
 
                     Appointment.objects.update_or_create(
                         **appointment_lookup,
                         defaults={
+                            "doctor": demo_doctor,
                             "appointment_date": appointment_date,
                             "time_slot_start": "10:00",
                             "time_slot_end": "10:30",
-                            "total_fee": doctor_profile.consultation_fee,
+                            "total_fee": demo_doctor.consultation_fee,
                             "status": Appointment.AppointmentStatus.PENDING,
                         },
                     )

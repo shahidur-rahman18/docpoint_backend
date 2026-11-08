@@ -1,12 +1,22 @@
 from rest_framework import serializers
+from apps.accounts.models import CustomUser
 from .models import Appointment
 from apps.doctors.models import DoctorProfile
 from apps.doctors.serializers import DoctorProfileSerializer
 # dfhd
 
+class AppointmentPatientSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.URLField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = CustomUser
+        fields = ['id', 'email', 'first_name', 'last_name', 'avatar_url']
+
+
 class AppointmentSerializer(serializers.ModelSerializer):
     doctor_detail = DoctorProfileSerializer(source='doctor', read_only=True)
     patient_email = serializers.ReadOnlyField(source='patient.email')
+    patient_detail = AppointmentPatientSerializer(source='patient', read_only=True)
 
     class Meta:
         model = Appointment
@@ -14,6 +24,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'id',
             'patient',
             'patient_email',
+            'patient_detail',
             'doctor',
             'doctor_detail',
             'appointment_date',
