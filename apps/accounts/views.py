@@ -9,6 +9,7 @@ from apps.accounts.models import MedicalRecord
 from apps.accounts.permissions import IsAdminRole, IsPatientRole
 from apps.accounts.serializers import (
     AdminDoctorCreateSerializer,
+    AdminPatientListSerializer,
     EmailVerifySerializer,
     ForgotPasswordSerializer,
     AccountCreationResponseSerializer,
@@ -223,6 +224,19 @@ class MedicalRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return MedicalRecord.objects.filter(patient=self.request.user.patient_profile)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=['Patients'],
+        summary='List all patients (admin only)',
+        description='Returns patient accounts with their patient profiles. Requires an administrator account.',
+    ),
+)
+class AdminPatientListView(generics.ListAPIView):
+    serializer_class = AdminPatientListSerializer
+    permission_classes = [IsAdminRole]
+    queryset = User.objects.filter(role='PATIENT').select_related('patient_profile').order_by('id')
 
 
 @extend_schema_view(

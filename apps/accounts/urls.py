@@ -1,6 +1,7 @@
 from django.urls import path
 from apps.accounts.views import (
     AdminDoctorCreateView,
+    AdminPatientListView,
     PasswordSetupView,
     PatientSignupView,
     EmailVerifyView,
@@ -19,6 +20,7 @@ from apps.accounts.views import (
 
 urlpatterns = [
     path('admin/doctors/create/', AdminDoctorCreateView.as_view(), name='admin_doctor_create'),
+    path('admin/patients/', AdminPatientListView.as_view(), name='admin_patient_list'),
     path('setup-password/', PasswordSetupView.as_view(), name='password_setup'),
     path('patient/signup/', PatientSignupView.as_view(), name='patient_signup'),
     path('patient/verify-email/', EmailVerifyView.as_view(), name='patient_verify_email'),

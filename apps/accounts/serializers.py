@@ -362,6 +362,24 @@ class PasswordSetupSerializer(serializers.Serializer):
         }
 
 
+class AdminPatientListSerializer(serializers.ModelSerializer):
+    patient_profile = PatientProfileSerializer(read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'phone_number',
+            'avatar_url',
+            'is_verified',
+            'patient_profile',
+        ]
+        read_only_fields = fields
+
+
 class PasswordSetupTokenResponseSerializer(serializers.Serializer):
     access = serializers.CharField()
     refresh = serializers.CharField()
