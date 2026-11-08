@@ -1,9 +1,12 @@
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from apps.accounts.models import MedicalRecord
 from apps.accounts.permissions import IsAdminRole, IsPatientRole
@@ -30,6 +33,34 @@ from apps.accounts.serializers import (
 
 
 User = get_user_model()
+
+DEMO_ROLE_SETTINGS = {
+    'admin': ('DEMO_ADMIN_EMAIL', 'DEMO_ADMIN_PASSWORD', User.Role.ADMIN),
+    'doctor': ('DEMO_DOCTOR_EMAIL', 'DEMO_DOCTOR_PASSWORD', User.Role.DOCTOR),
+}
+
+
+def _set_auth_cookies(response, access_token, refresh_token):
+    is_prod = not settings.DEBUG
+    samesite_val = 'None' if is_prod else 'Lax'
+    response.set_cookie(
+        key='refresh_token',
+        value=refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite=samesite_val,
+        max_age=7 * 24 * 60 * 60,
+        path='/',
+    )
+    response.set_cookie(
+        key='access_token',
+        value=access_token,
+        httponly=True,
+        secure=is_prod,
+        samesite=samesite_val,
+        max_age=30 * 60,
+        path='/',
+    )
 
 
 @extend_schema_view(
@@ -314,30 +345,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             data = response.data
             refresh_token = data.get('refresh')
             access_token = data.get('access')
-
-            is_prod = not settings.DEBUG
-            samesite_val = 'None' if is_prod else 'Lax'
-
-            # HttpOnly কুকি সেট করা হচ্ছে
-            response.set_cookie(
-                key='refresh_token',
-                value=refresh_token,
-                httponly=True,
-                secure=is_prod,  # প্রোডাকশনে HTTPS থাকলে True হবে, লোকালহোস্টে HTTP এর জন্য False থাকবে
-                samesite=samesite_val,  # প্রোডাকশনে ক্রস-ডোমেনের জন্য None, লোকালে Lax
-                max_age=7 * 24 * 60 * 60,  # ৭ দিন
-                path='/'
-            )
-
-            response.set_cookie(
-                key='access_token',
-                value=access_token,
-                httponly=True,
-                secure=is_prod,
-                samesite=samesite_val,
-                max_age=30 * 60,  # ৩০ মিনিট
-                path='/'
-            )
+            _set_auth_cookies(response, access_token, refresh_token)
 
             # কুকির পাশাপাশি বডিতেও টোকেন রিটার্ন করা হচ্ছে (হাইব্রিড সাপোর্ট)
             response.data = {
@@ -347,6 +355,83 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 "refresh": refresh_token,
             }
 
+        return response
+
+
+@extend_schema_view(
+    get=extend_schema(
+        auth=[],
+        tags=['Authentication'],
+        summary='Get the configured demo account email',
+        responses={status.HTTP_200_OK: OpenApiResponse(description='The demo account email.')},
+    ),
+    post=extend_schema(
+        auth=[],
+        tags=['Authentication'],
+        summary='Log in to a demo account',
+        description='Authenticates using the selected demo account credentials stored on the server.',
+        responses={status.HTTP_200_OK: LoginResponseSerializer},
+    ),
+)
+class DemoLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'demo_login'
+
+    def _demo_account(self, role):
+        if not isinstance(role, str) or role not in DEMO_ROLE_SETTINGS:
+            return None
+
+        email_setting, password_setting, expected_role = DEMO_ROLE_SETTINGS[role]
+        email = getattr(settings, email_setting, '')
+        password = getattr(settings, password_setting, '')
+        if not email or not password:
+            return None
+
+        return email, password, expected_role
+
+    def get(self, request, *args, **kwargs):
+        role = request.query_params.get('role')
+        demo_account = self._demo_account(role)
+        if not demo_account:
+            return Response(
+                {'detail': 'Demo login is unavailable for this role.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({'email': demo_account[0]}, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        role = request.data.get('role')
+        demo_account = self._demo_account(role)
+        if not demo_account:
+            return Response(
+                {'detail': 'Demo login is unavailable for this role.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        email, password, expected_role = demo_account
+        user = authenticate(request, email=email, password=password)
+        if not user or user.role != expected_role:
+            return Response(
+                {'detail': 'Demo login is unavailable for this role.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+        response = Response(
+            {
+                'success': True,
+                'message': 'Login successful',
+                'access': access_token,
+                'refresh': refresh_token,
+            },
+            status=status.HTTP_200_OK,
+        )
+        _set_auth_cookies(response, access_token, refresh_token)
         return response
 
 

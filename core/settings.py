@@ -36,6 +36,10 @@ SECRET_KEY = env('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True for dev mood
 DEBUG = env('DEBUG', cast=bool, default=False) ## for production mood 
+DEMO_ADMIN_EMAIL = env('DEMO_ADMIN_EMAIL', default='')
+DEMO_ADMIN_PASSWORD = env('DEMO_ADMIN_PASSWORD', default='')
+DEMO_DOCTOR_EMAIL = env('DEMO_DOCTOR_EMAIL', default='')
+DEMO_DOCTOR_PASSWORD = env('DEMO_DOCTOR_PASSWORD', default='')
 
 ALLOWED_HOSTS = env.list(
     'ALLOWED_HOSTS',
@@ -182,6 +186,9 @@ REST_FRAMEWORK = {
         'apps.accounts.authentication.CookieJWTAuthentication',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema', # ১. DRF-এর জন্য Spectacular Schema ক্লাস নির্দেশ করা হলো
+    'DEFAULT_THROTTLE_RATES': {
+        'demo_login': '10/minute',
+    },
 }
 
 SIMPLE_JWT = {

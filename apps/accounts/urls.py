@@ -14,6 +14,7 @@ from apps.accounts.views import (
     MedicalRecordDetailView,
     UserProfileView,
     CookieTokenObtainPairView,
+    DemoLoginView,
     CookieTokenRefreshView,
     LogoutView,
 )
@@ -36,6 +37,7 @@ urlpatterns = [
         name='patient_medical_record_detail',
     ),
     path('login/', CookieTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('demo-login/', DemoLoginView.as_view(), name='demo_login'),
     path('token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('me/', UserProfileView.as_view(), name='user_profile'),

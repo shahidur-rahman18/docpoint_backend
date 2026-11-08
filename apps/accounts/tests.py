@@ -644,6 +644,77 @@ class PasswordSetupTokenTests(TestCase):
         self.assertFalse(self.user.is_active)
 
 
+@override_settings(
+    DEMO_ADMIN_EMAIL='demo-admin@example.test',
+    DEMO_ADMIN_PASSWORD='safe-demo-admin-password',
+    DEMO_DOCTOR_EMAIL='demo-doctor@example.test',
+    DEMO_DOCTOR_PASSWORD='safe-demo-doctor-password',
+    DEBUG=True,
+)
+class DemoLoginViewTests(TestCase):
+    def setUp(self):
+        self.admin = CustomUser.objects.create_user(
+            email='demo-admin@example.test',
+            password='safe-demo-admin-password',
+            role=CustomUser.Role.ADMIN,
+        )
+        self.doctor = CustomUser.objects.create_user(
+            email='demo-doctor@example.test',
+            password='safe-demo-doctor-password',
+            role=CustomUser.Role.DOCTOR,
+        )
+        self.url = reverse('demo_login')
+
+    def test_returns_demo_email_without_exposing_password(self):
+        response = self.client.get(self.url, {'role': 'admin'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {'email': 'demo-admin@example.test'})
+        self.assertNotIn('password', response.data)
+
+    def test_demo_login_returns_tokens_and_http_only_cookies(self):
+        response = self.client.post(self.url, {'role': 'doctor'}, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        self.assertTrue(response.cookies['access_token']['httponly'])
+        self.assertTrue(response.cookies['refresh_token']['httponly'])
+        self.assertEqual(
+            AccessToken(response.data['access'])['user_id'],
+            str(self.doctor.pk),
+        )
+
+    def test_regular_login_still_returns_tokens_and_http_only_cookies(self):
+        response = self.client.post(
+            reverse('token_obtain_pair'),
+            {
+                'email': 'demo-admin@example.test',
+                'password': 'safe-demo-admin-password',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        self.assertTrue(response.cookies['access_token']['httponly'])
+        self.assertTrue(response.cookies['refresh_token']['httponly'])
+
+    def test_invalid_or_unconfigured_role_does_not_issue_tokens(self):
+        for role in ('patient', 'missing'):
+            response = self.client.post(self.url, {'role': role}, format='json')
+            self.assertEqual(response.status_code, 404)
+            self.assertNotIn('access', response.data)
+
+    @override_settings(DEMO_ADMIN_PASSWORD='')
+    def test_missing_demo_credentials_are_unavailable(self):
+        response = self.client.post(self.url, {'role': 'admin'}, format='json')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn('access', response.data)
+
+
 class SeedDemoDataTests(TestCase):
     seed_environment = {
         "DEMO_ADMIN_EMAIL": "demo-admin@example.test",
