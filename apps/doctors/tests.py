@@ -6,7 +6,97 @@ from rest_framework.test import APITestCase
 from apps.accounts.avatar_storage import AvatarStorageUnavailable
 from apps.accounts.models import CustomUser
 from apps.appointments.models import Appointment
-from apps.doctors.models import DoctorProfile
+from apps.doctors.models import DoctorProfile, WEEKDAYS, empty_weekly_schedule
+
+
+class DoctorScheduleApiTests(APITestCase):
+    def setUp(self):
+        self.doctor = CustomUser.objects.create_user(
+            email='schedule-doctor@example.test',
+            password='safe-doctor-password',
+            role=CustomUser.Role.DOCTOR,
+        )
+        self.patient = CustomUser.objects.create_user(
+            email='schedule-patient@example.test',
+            password='safe-patient-password',
+            role=CustomUser.Role.PATIENT,
+        )
+        self.admin = CustomUser.objects.create_user(
+            email='schedule-admin@example.test',
+            password='safe-admin-password',
+            role=CustomUser.Role.ADMIN,
+        )
+        self.url = reverse('doctor-schedule')
+        self.client.force_authenticate(user=self.doctor)
+
+    def valid_payload(self):
+        return {
+            'effective_from': '2026-11-09',
+            'effective_until': None,
+            'timezone': 'Asia/Dhaka',
+            'weekly_schedule': empty_weekly_schedule(),
+        }
+
+    def test_get_returns_empty_schedule_before_first_save(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['effective_from'], None)
+        self.assertEqual(response.data['timezone'], 'Asia/Dhaka')
+        self.assertEqual(response.data['weekly_schedule'], empty_weekly_schedule())
+
+    def test_doctor_can_save_and_read_own_schedule(self):
+        payload = self.valid_payload()
+        payload['weekly_schedule']['MONDAY'] = [
+            {'start': '09:00', 'end': '13:00'},
+        ]
+
+        save_response = self.client.put(self.url, payload, format='json')
+        read_response = self.client.get(self.url)
+
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(read_response.status_code, 200)
+        self.assertEqual(read_response.data['weekly_schedule'], payload['weekly_schedule'])
+
+    def test_rejects_end_date_before_start_date(self):
+        payload = self.valid_payload()
+        payload['effective_until'] = '2026-11-08'
+
+        response = self.client.put(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('effective_until', response.data)
+
+    def test_rejects_overlapping_slots(self):
+        payload = self.valid_payload()
+        payload['weekly_schedule']['MONDAY'] = [
+            {'start': '09:00', 'end': '11:00'},
+            {'start': '10:00', 'end': '12:00'},
+        ]
+
+        response = self.client.put(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('MONDAY', response.data['weekly_schedule'])
+
+    def test_non_doctor_cannot_read_or_change_a_schedule(self):
+        self.client.force_authenticate(user=self.patient)
+        patient_response = self.client.get(self.url)
+
+        self.client.force_authenticate(user=self.admin)
+        admin_response = self.client.put(self.url, self.valid_payload(), format='json')
+
+        self.assertEqual(patient_response.status_code, 403)
+        self.assertEqual(admin_response.status_code, 403)
+
+    def test_schedule_payload_requires_every_weekday(self):
+        payload = self.valid_payload()
+        payload['weekly_schedule'].pop(WEEKDAYS[0])
+
+        response = self.client.put(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(WEEKDAYS[0], response.data['weekly_schedule'])
 
 
 class DoctorListTests(APITestCase):

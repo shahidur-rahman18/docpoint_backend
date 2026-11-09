@@ -1,17 +1,72 @@
 import logging
 
 from django.db import transaction
-from rest_framework import viewsets, permissions
+from rest_framework import status, viewsets, permissions
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from apps.accounts.avatar_storage import AvatarStorageUnavailable, delete_avatar
-from .models import DoctorProfile
-from .serializers import DoctorProfileSerializer
+from .models import DoctorProfile, DoctorSchedule, empty_weekly_schedule
+from .serializers import DoctorProfileSerializer, DoctorScheduleSerializer
 from .filters import DoctorFilter
 
 logger = logging.getLogger(__name__)
+
+
+class IsDoctorWithProfile(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated
+            and request.user.role == 'DOCTOR'
+            and hasattr(request.user, 'doctor_profile')
+        )
+
+
+@extend_schema(
+    tags=['Doctors'],
+    summary='Get the authenticated doctor schedule',
+    responses=DoctorScheduleSerializer,
+)
+class DoctorScheduleView(APIView):
+    permission_classes = [IsAuthenticated, IsDoctorWithProfile]
+
+    def get(self, request):
+        schedule = DoctorSchedule.objects.filter(
+            doctor=request.user.doctor_profile,
+        ).first()
+        if schedule is None:
+            return Response({
+                'effective_from': None,
+                'effective_until': None,
+                'timezone': 'Asia/Dhaka',
+                'weekly_schedule': empty_weekly_schedule(),
+            })
+        return Response(DoctorScheduleSerializer(schedule).data)
+
+    @extend_schema(
+        summary='Replace the authenticated doctor schedule',
+        request=DoctorScheduleSerializer,
+        responses=DoctorScheduleSerializer,
+    )
+    def put(self, request):
+        with transaction.atomic():
+            doctor = DoctorProfile.objects.select_for_update().get(user=request.user)
+            schedule = DoctorSchedule.objects.filter(doctor=doctor).first()
+            serializer = DoctorScheduleSerializer(
+                instance=schedule,
+                data=request.data,
+            )
+            serializer.is_valid(raise_exception=True)
+            saved_schedule = serializer.save(doctor=doctor)
+
+        return Response(
+            DoctorScheduleSerializer(saved_schedule).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class IsDoctorOwnerOrAdmin(permissions.BasePermission):

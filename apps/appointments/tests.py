@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import CustomUser
 from apps.appointments.models import Appointment
+from apps.doctors.models import DoctorSchedule, empty_weekly_schedule
 
 
 class DoctorAppointmentListTests(TestCase):
@@ -67,3 +68,71 @@ class DoctorAppointmentListTests(TestCase):
                 'avatar_url': 'https://example.test/patient.png',
             },
         )
+
+
+class DoctorAvailabilityBookingTests(TestCase):
+    def setUp(self):
+        self.doctor_user = CustomUser.objects.create_user(
+            email='available-doctor@example.test',
+            password='safe-doctor-password',
+            role=CustomUser.Role.DOCTOR,
+        )
+        self.doctor = self.doctor_user.doctor_profile
+        self.patient = CustomUser.objects.create_user(
+            email='booking-patient@example.test',
+            password='safe-patient-password',
+            role=CustomUser.Role.PATIENT,
+        )
+        self.appointment_date = timezone.localdate() + timedelta(days=1)
+        weekly_schedule = empty_weekly_schedule()
+        weekday = self.appointment_date.strftime('%A').upper()
+        weekly_schedule[weekday] = [{'start': '09:00', 'end': '13:00'}]
+        DoctorSchedule.objects.create(
+            doctor=self.doctor,
+            effective_from=self.appointment_date,
+            timezone='Asia/Dhaka',
+            weekly_schedule=weekly_schedule,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.patient)
+        self.payload = {
+            'doctor': self.doctor.id,
+            'appointment_date': self.appointment_date.isoformat(),
+            'time_slot_start': '10:00',
+            'time_slot_end': '10:30',
+        }
+
+    def test_patient_can_book_within_doctor_availability(self):
+        response = self.client.post(
+            reverse('appointment-list'),
+            self.payload,
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['doctor'], self.doctor.id)
+
+    def test_patient_cannot_book_outside_doctor_availability(self):
+        self.payload['time_slot_start'] = '14:00'
+        self.payload['time_slot_end'] = '14:30'
+
+        response = self.client.post(
+            reverse('appointment-list'),
+            self.payload,
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('appointment_date', response.data)
+
+    def test_patient_cannot_book_before_doctor_sets_availability(self):
+        DoctorSchedule.objects.filter(doctor=self.doctor).delete()
+
+        response = self.client.post(
+            reverse('appointment-list'),
+            self.payload,
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('appointment_date', response.data)
