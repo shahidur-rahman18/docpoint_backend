@@ -1,6 +1,10 @@
-from django.db import models
 from django.conf import settings
-from apps.doctors.models import DoctorProfile
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models import Q
+
+from apps.doctors.models import Chamber, DoctorProfile
+
 
 class Appointment(models.Model):
     class AppointmentStatus(models.TextChoices):
@@ -20,6 +24,13 @@ class Appointment(models.Model):
         on_delete=models.CASCADE,
         related_name='doctor_appointments'
     )
+    chamber = models.ForeignKey(
+        Chamber,
+        on_delete=models.SET_NULL,
+        related_name='appointments',
+        null=True,
+        blank=True,
+    )
     appointment_date = models.DateField(db_index=True)
     time_slot_start = models.TimeField()
     time_slot_end = models.TimeField()
@@ -38,6 +49,27 @@ class Appointment(models.Model):
 
     class Meta:
         ordering = ['-appointment_date', '-time_slot_start']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['doctor', 'appointment_date', 'time_slot_start'],
+                condition=Q(status__in=['PENDING', 'CONFIRMED']),
+                name='appt_active_doctor_slot_unique',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.chamber_id is not None
+            and self.doctor_id is not None
+            and self.chamber.doctor_id != self.doctor_id
+        ):
+            raise ValidationError({
+                'chamber': 'The chamber must belong to the selected doctor.',
+            })
 
     def __str__(self):
-        return f"Appointment #{self.id} - Patient: {self.patient.email} with Dr. {self.doctor.user.email} on {self.appointment_date}"
+        return (
+            f"Appointment #{self.id} - Patient: {self.patient.email} with "
+            f"Dr. {self.doctor.user.email} on {self.appointment_date}"
+        )

@@ -46,6 +46,13 @@ class AccountDoctorProfileSerializer(serializers.ModelSerializer):
 
 
 class PatientProfileSerializer(serializers.ModelSerializer):
+    profile_complete = serializers.BooleanField(read_only=True, source='is_complete')
+    missing_fields = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        source='missing_required_fields',
+    )
+
     class Meta:
         model = PatientProfile
         fields = [
@@ -55,8 +62,25 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             'blood_group',
             'address',
             'emergency_contact',
+            'profile_complete',
+            'missing_fields',
         ]
         read_only_fields = ['id']
+
+    def validate_date_of_birth(self, value):
+        if value > timezone.localdate():
+            raise serializers.ValidationError('Date of birth cannot be in the future.')
+        return value
+
+    def validate(self, attrs):
+        protected_fields = {'user', 'role', 'patient', 'profile_complete', 'missing_fields'}
+        supplied_fields = protected_fields.intersection(self.initial_data)
+        if supplied_fields:
+            raise serializers.ValidationError({
+                field: 'This field cannot be changed through the patient profile API.'
+                for field in sorted(supplied_fields)
+            })
+        return attrs
 
 
 class MedicalRecordSerializer(serializers.ModelSerializer):

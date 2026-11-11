@@ -357,6 +357,219 @@ class PatientAccountViewTests(TestCase):
         self.assertEqual(other_detail.status_code, 404)
 
 
+class PatientProfileApiTests(TestCase):
+    def setUp(self):
+        self.patient = CustomUser.objects.create_user(
+            email='profile-api-patient@example.com',
+            password='Safe-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+        self.other_patient = CustomUser.objects.create_user(
+            email='profile-api-other@example.com',
+            password='Safe-patient-password-123',
+            role=CustomUser.Role.PATIENT,
+        )
+        self.doctor = CustomUser.objects.create_user(
+            email='profile-api-doctor@example.com',
+            password='Safe-doctor-password-123',
+            role=CustomUser.Role.DOCTOR,
+        )
+        self.admin = CustomUser.objects.create_user(
+            email='profile-api-admin@example.com',
+            password='Safe-admin-password-123',
+            role=CustomUser.Role.ADMIN,
+        )
+        self.client = APIClient()
+        self.url = reverse('patient_profile')
+
+    def test_patient_can_view_own_incomplete_profile_and_missing_fields(self):
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['profile_complete'])
+        self.assertEqual(
+            set(response.data['missing_fields']),
+            {'date_of_birth', 'gender', 'blood_group', 'address'},
+        )
+
+    def test_patient_can_update_profile_and_complete_missing_fields(self):
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.patch(
+            self.url,
+            {
+                'date_of_birth': '1990-01-01',
+                'gender': PatientProfile.Gender.OTHER,
+                'blood_group': PatientProfile.BloodGroup.UNKNOWN,
+                'address': 'Dhaka',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['profile_complete'])
+        self.assertEqual(response.data['missing_fields'], [])
+        self.assertEqual(response.data['blood_group'], PatientProfile.BloodGroup.UNKNOWN)
+        self.patient.patient_profile.refresh_from_db()
+        self.assertTrue(self.patient.patient_profile.is_complete)
+
+    def test_patient_can_replace_profile_with_put_and_receive_completion_metadata(self):
+        self.client.force_authenticate(user=self.patient)
+
+        payload = {
+            'date_of_birth': '1990-01-01',
+            'gender': PatientProfile.Gender.OTHER,
+            'blood_group': PatientProfile.BloodGroup.UNKNOWN,
+            'address': 'Dhaka',
+        }
+        response = self.client.put(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        for field, value in payload.items():
+            with self.subTest(field=field):
+                self.assertEqual(response.data[field], value)
+        self.assertTrue(response.data['profile_complete'])
+        self.assertEqual(response.data['missing_fields'], [])
+
+    def test_incomplete_put_returns_missing_fields_and_invalid_put_is_rejected(self):
+        self.client.force_authenticate(user=self.patient)
+
+        incomplete_response = self.client.put(
+            self.url,
+            {'date_of_birth': '1990-01-01'},
+            format='json',
+        )
+
+        self.assertEqual(incomplete_response.status_code, 200)
+        self.assertFalse(incomplete_response.data['profile_complete'])
+        self.assertEqual(
+            set(incomplete_response.data['missing_fields']),
+            {'gender', 'blood_group', 'address'},
+        )
+        self.assertEqual(incomplete_response.data['date_of_birth'], '1990-01-01')
+
+        invalid_response = self.client.put(
+            self.url,
+            {
+                'date_of_birth': '1990-01-01',
+                'gender': 'INVALID',
+                'blood_group': PatientProfile.BloodGroup.UNKNOWN,
+                'address': 'Dhaka',
+            },
+            format='json',
+        )
+
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertIn('gender', invalid_response.data)
+        self.patient.patient_profile.refresh_from_db()
+        self.assertEqual(self.patient.patient_profile.date_of_birth.isoformat(), '1990-01-01')
+        self.assertEqual(self.patient.patient_profile.gender, '')
+        self.assertEqual(self.patient.patient_profile.address, '')
+
+    def test_partial_profile_update_keeps_existing_fields_and_returns_remaining_missing(self):
+        profile = self.patient.patient_profile
+        profile.address = 'Existing address'
+        profile.save(update_fields=['address'])
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.patch(
+            self.url,
+            {'gender': PatientProfile.Gender.FEMALE},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['profile_complete'])
+        self.assertEqual(
+            set(response.data['missing_fields']),
+            {'date_of_birth', 'blood_group'},
+        )
+        self.assertEqual(response.data['address'], 'Existing address')
+
+    def test_profile_endpoint_does_not_expose_another_patients_profile(self):
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            self.url,
+            {'patient': self.other_patient.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['id'], self.patient.patient_profile.pk)
+        self.assertNotEqual(response.data['id'], self.other_patient.patient_profile.pk)
+
+    def test_unauthenticated_profile_request_is_rejected(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_profile_rejects_protected_ownership_fields(self):
+        self.client.force_authenticate(user=self.patient)
+
+        for field, value in (
+            ('user', self.other_patient.pk),
+            ('role', CustomUser.Role.ADMIN),
+            ('patient', self.other_patient.pk),
+        ):
+            with self.subTest(field=field):
+                response = self.client.patch(
+                    self.url,
+                    {field: value},
+                    format='json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.data)
+                self.patient.patient_profile.refresh_from_db()
+                self.assertEqual(
+                    self.patient.patient_profile.user_id,
+                    self.patient.pk,
+                )
+
+    def test_future_or_invalid_date_of_birth_is_rejected(self):
+        self.client.force_authenticate(user=self.patient)
+        future_response = self.client.patch(
+            self.url,
+            {'date_of_birth': (timezone.localdate() + timedelta(days=1)).isoformat()},
+            format='json',
+        )
+        malformed_response = self.client.patch(
+            self.url,
+            {'date_of_birth': 'not-a-date'},
+            format='json',
+        )
+
+        self.assertEqual(future_response.status_code, 400)
+        self.assertEqual(malformed_response.status_code, 400)
+        self.patient.patient_profile.refresh_from_db()
+        self.assertIsNone(self.patient.patient_profile.date_of_birth)
+
+    def test_invalid_gender_and_blood_group_are_rejected(self):
+        self.client.force_authenticate(user=self.patient)
+
+        invalid_gender = self.client.patch(
+            self.url,
+            {'gender': 'UNKNOWN'},
+            format='json',
+        )
+        invalid_blood_group = self.client.patch(
+            self.url,
+            {'blood_group': 'X+'},
+            format='json',
+        )
+
+        self.assertEqual(invalid_gender.status_code, 400)
+        self.assertEqual(invalid_blood_group.status_code, 400)
+
+    def test_doctor_and_admin_cannot_use_patient_profile_api(self):
+        for user in (self.doctor, self.admin):
+            with self.subTest(role=user.role):
+                self.client.force_authenticate(user=user)
+                response = self.client.get(self.url)
+                self.assertEqual(response.status_code, 403)
+
+
 class AvatarProfileApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()

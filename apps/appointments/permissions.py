@@ -4,6 +4,15 @@ class IsAppointmentParticipantOrAdmin(permissions.BasePermission):
     """
     রোগী, ডাক্তার অথবা অ্যাডমিন ছাড়া অন্য কেউ অ্যাপয়েন্টমেন্ট দেখতে বা পরিবর্তন করতে পারবে না।
     """
+    def has_permission(self, request, view):
+        if getattr(view, 'action', None) == 'create':
+            return bool(
+                request.user
+                and request.user.is_authenticated
+                and request.user.role == 'PATIENT'
+            )
+        return True
+
     def has_object_permission(self, request, view, obj):
         if request.user.role == 'ADMIN':
             return True

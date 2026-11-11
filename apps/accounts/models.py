@@ -58,6 +58,8 @@ class CustomUser(AbstractUser):
 
 
 class PatientProfile(models.Model):
+    REQUIRED_FIELDS = ('date_of_birth', 'gender', 'blood_group', 'address')
+
     class BloodGroup(models.TextChoices):
         A_POS = 'A+', 'A+'
         A_NEG = 'A-', 'A-'
@@ -67,6 +69,7 @@ class PatientProfile(models.Model):
         AB_NEG = 'AB-', 'AB-'
         O_POS = 'O+', 'O+'
         O_NEG = 'O-', 'O-'
+        UNKNOWN = 'UNKNOWN', 'Unknown / Not Tested'
 
     class Gender(models.TextChoices):
         MALE = 'MALE', 'Male'
@@ -81,11 +84,24 @@ class PatientProfile(models.Model):
     emergency_contact = models.CharField(max_length=15, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
     gender = models.CharField(max_length=10, choices=Gender.choices, blank=True)
-    blood_group = models.CharField(max_length=3, choices=BloodGroup.choices, blank=True)
+    blood_group = models.CharField(max_length=10, choices=BloodGroup.choices, blank=True)
     address = models.TextField(blank=True)
 
     def __str__(self):
         return f"Patient: {self.user.email}"
+
+    @property
+    def missing_required_fields(self):
+        return [
+            field
+            for field in self.REQUIRED_FIELDS
+            if not getattr(self, field)
+            or not str(getattr(self, field)).strip()
+        ]
+
+    @property
+    def is_complete(self):
+        return not self.missing_required_fields
 
 
 class MedicalRecord(models.Model):
