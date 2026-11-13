@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -8,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from apps.appointments.models import Appointment
 from apps.accounts.models import MedicalRecord
 from apps.accounts.permissions import IsAdminRole, IsPatientRole
 from apps.accounts.serializers import (
@@ -261,13 +264,46 @@ class MedicalRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
     get=extend_schema(
         tags=['Patients'],
         summary='List all patients (admin only)',
-        description='Returns patient accounts with their patient profiles. Requires an administrator account.',
+        description=(
+            'Returns patient accounts with their patient profiles, next scheduled appointment '
+            'doctor (or latest completed visit doctor), and latest completed visit date. '
+            'Requires an administrator account.'
+        ),
     ),
 )
 class AdminPatientListView(generics.ListAPIView):
     serializer_class = AdminPatientListSerializer
     permission_classes = [IsAdminRole]
-    queryset = User.objects.filter(role='PATIENT').select_related('patient_profile').order_by('id')
+
+    def get_queryset(self):
+        appointment_model = Appointment.AppointmentStatus
+        upcoming_appointments = Appointment.objects.filter(
+            status__in=[
+                appointment_model.PENDING,
+                appointment_model.CONFIRMED,
+            ],
+            appointment_date__gte=timezone.localdate(),
+        ).select_related('doctor__user').order_by('appointment_date', 'time_slot_start')
+        completed_visits = Appointment.objects.filter(
+            status=appointment_model.COMPLETED,
+        ).select_related('doctor__user').order_by('-appointment_date', '-time_slot_start')
+        return (
+            User.objects.filter(role=User.Role.PATIENT)
+            .select_related('patient_profile')
+            .prefetch_related(
+                Prefetch(
+                    'patient_appointments',
+                    queryset=upcoming_appointments,
+                    to_attr='upcoming_patient_appointments',
+                ),
+                Prefetch(
+                    'patient_appointments',
+                    queryset=completed_visits,
+                    to_attr='completed_patient_appointments',
+                ),
+            )
+            .order_by('id')
+        )
 
 
 @extend_schema_view(

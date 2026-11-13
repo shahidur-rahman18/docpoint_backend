@@ -15,6 +15,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.conf import settings
 from django.db import transaction
+from drf_spectacular.utils import extend_schema_field
 from rest_framework.exceptions import ValidationError
 from apps.accounts.avatar_storage import AvatarStorageUnavailable, delete_avatar, upload_avatar
 from apps.accounts.emails import (
@@ -386,8 +387,17 @@ class PasswordSetupSerializer(serializers.Serializer):
         }
 
 
+class AdminPatientDoctorSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    avatar_url = serializers.URLField(allow_null=True)
+    specialization = serializers.CharField(allow_blank=True)
+    is_available = serializers.BooleanField()
+
+
 class AdminPatientListSerializer(serializers.ModelSerializer):
     patient_profile = PatientProfileSerializer(read_only=True)
+    doctor = serializers.SerializerMethodField()
+    last_visit = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -400,8 +410,37 @@ class AdminPatientListSerializer(serializers.ModelSerializer):
             'avatar_url',
             'is_verified',
             'patient_profile',
+            'doctor',
+            'last_visit',
         ]
         read_only_fields = fields
+
+    @extend_schema_field(AdminPatientDoctorSerializer(allow_null=True))
+    def get_doctor(self, patient):
+        upcoming_appointments = patient.upcoming_patient_appointments
+        completed_visits = patient.completed_patient_appointments
+        if upcoming_appointments:
+            appointment = upcoming_appointments[0]
+        elif completed_visits:
+            appointment = completed_visits[0]
+        else:
+            appointment = None
+        if appointment is None:
+            return None
+
+        doctor = appointment.doctor
+        full_name = doctor.user.get_full_name().strip()
+        return {
+            'name': f'Dr. {full_name}' if full_name else 'Name not provided',
+            'avatar_url': doctor.user.avatar_url,
+            'specialization': doctor.specialization or '',
+            'is_available': doctor.is_available,
+        }
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_last_visit(self, patient):
+        completed_visits = patient.completed_patient_appointments
+        return completed_visits[0].appointment_date if completed_visits else None
 
 
 class PasswordSetupTokenResponseSerializer(serializers.Serializer):

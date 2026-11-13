@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import time, timedelta
 from io import BytesIO, StringIO
 import os
 from unittest.mock import patch
@@ -64,6 +64,115 @@ class AccountEmailTests(SimpleTestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ['patient@example.com'])
         self.assertIn(reset_url, mail.outbox[0].body)
+
+
+class AdminPatientListTests(TestCase):
+    def setUp(self):
+        self.admin = CustomUser.objects.create_user(
+            email='patient-list-admin@example.com',
+            password='Safe-admin-password-123',
+            role=CustomUser.Role.ADMIN,
+        )
+        self.patient = CustomUser.objects.create_user(
+            email='patient-list-patient@example.com',
+            password='Safe-patient-password-123',
+            first_name='Taylor',
+            last_name='Patient',
+            role=CustomUser.Role.PATIENT,
+        )
+        doctor_user = CustomUser.objects.create_user(
+            email='patient-list-doctor@example.com',
+            password='Safe-doctor-password-123',
+            first_name='Morgan',
+            last_name='Doctor',
+            role=CustomUser.Role.DOCTOR,
+        )
+        self.doctor, _ = DoctorProfile.objects.update_or_create(
+            user=doctor_user,
+            defaults={
+                'specialization': 'Cardiology',
+                'is_available': False,
+            },
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+        self.url = reverse('admin_patient_list')
+
+    def test_prefers_nearest_upcoming_doctor_and_keeps_last_completed_visit(self):
+        last_visit = timezone.localdate() - timedelta(days=2)
+        Appointment.objects.create(
+            patient=self.patient,
+            doctor=self.doctor,
+            appointment_date=last_visit,
+            time_slot_start=time(9),
+            time_slot_end=time(9, 30),
+            status=Appointment.AppointmentStatus.COMPLETED,
+        )
+        upcoming_doctor_user = CustomUser.objects.create_user(
+            email='patient-list-upcoming-doctor@example.com',
+            password='Safe-doctor-password-123',
+            first_name='Jordan',
+            last_name='Upcoming',
+            role=CustomUser.Role.DOCTOR,
+        )
+        upcoming_doctor, _ = DoctorProfile.objects.update_or_create(
+            user=upcoming_doctor_user,
+            defaults={
+                'specialization': 'Neurology',
+                'is_available': True,
+            },
+        )
+        Appointment.objects.create(
+            patient=self.patient,
+            doctor=upcoming_doctor,
+            appointment_date=timezone.localdate() + timedelta(days=2),
+            time_slot_start=time(10),
+            time_slot_end=time(10, 30),
+            status=Appointment.AppointmentStatus.CONFIRMED,
+        )
+        Appointment.objects.create(
+            patient=self.patient,
+            doctor=self.doctor,
+            appointment_date=timezone.localdate() + timedelta(days=5),
+            time_slot_start=time(11),
+            time_slot_end=time(11, 30),
+            status=Appointment.AppointmentStatus.PENDING,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        patient_data = next(item for item in response.json() if item['id'] == self.patient.id)
+        self.assertEqual(patient_data['last_visit'], last_visit.isoformat())
+        self.assertEqual(patient_data['doctor']['name'], 'Dr. Jordan Upcoming')
+        self.assertEqual(patient_data['doctor']['specialization'], 'Neurology')
+        self.assertTrue(patient_data['doctor']['is_available'])
+
+    def test_uses_upcoming_doctor_even_when_patient_has_no_completed_visit(self):
+        Appointment.objects.create(
+            patient=self.patient,
+            doctor=self.doctor,
+            appointment_date=timezone.localdate() + timedelta(days=2),
+            time_slot_start=time(10),
+            time_slot_end=time(10, 30),
+            status=Appointment.AppointmentStatus.PENDING,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        patient_data = next(item for item in response.json() if item['id'] == self.patient.id)
+        self.assertIsNone(patient_data['last_visit'])
+        self.assertEqual(patient_data['doctor']['name'], 'Dr. Morgan Doctor')
+        self.assertFalse(patient_data['doctor']['is_available'])
+
+    def test_returns_empty_visit_fields_when_patient_has_no_completed_visit(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        patient_data = next(item for item in response.json() if item['id'] == self.patient.id)
+        self.assertIsNone(patient_data['last_visit'])
+        self.assertIsNone(patient_data['doctor'])
 
 
 @override_settings(
