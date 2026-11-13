@@ -271,6 +271,15 @@ class AdminPatientListView(generics.ListAPIView):
 
 
 @extend_schema_view(
+    get=extend_schema(tags=['Patients'], summary='Get patient details (admin only)'),
+)
+class AdminPatientDetailView(generics.RetrieveAPIView):
+    serializer_class = AdminPatientListSerializer
+    permission_classes = [IsAdminRole]
+    queryset = User.objects.filter(role='PATIENT').select_related('patient_profile')
+
+
+@extend_schema_view(
     post=extend_schema(
         tags=['Doctors'],
         summary='Create a doctor account',

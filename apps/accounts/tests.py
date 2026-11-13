@@ -985,3 +985,99 @@ class SeedDemoDataTests(TestCase):
     def test_remote_database_requires_explicit_confirmation_even_with_debug(self):
         with self.assertRaisesMessage(CommandError, "--allow-production"):
             call_command("seed_demo_data")
+
+
+class AdminPatientApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = CustomUser.objects.create_user(
+            email="admin-patients@example.com",
+            password="safe-admin-password",
+            role=CustomUser.Role.ADMIN,
+        )
+        self.patient = CustomUser.objects.create_user(
+            email="patient-details@example.com",
+            password=None,
+            role=CustomUser.Role.PATIENT,
+            first_name="Patient",
+            last_name="Example",
+            phone_number="+1 555 0100",
+        )
+        self.patient.patient_profile.date_of_birth = "1990-01-25"
+        self.patient.patient_profile.gender = PatientProfile.Gender.FEMALE
+        self.patient.patient_profile.blood_group = PatientProfile.BloodGroup.A_POS
+        self.patient.patient_profile.address = "123 Main Street"
+        self.patient.patient_profile.save()
+
+    def test_admin_can_list_patients_and_view_patient_details(self):
+        self.client.force_authenticate(user=self.admin)
+
+        list_response = self.client.get(reverse("admin_patient_list"))
+        detail_response = self.client.get(
+            reverse("admin_patient_detail", args=[self.patient.pk])
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(len(list_response.data), 1)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.data["id"], self.patient.pk)
+        self.assertEqual(
+            detail_response.data["patient_profile"]["address"],
+            "123 Main Street",
+        )
+        self.assertEqual(
+            detail_response.data["patient_profile"]["blood_group"],
+            PatientProfile.BloodGroup.A_POS,
+        )
+
+    def test_only_admin_can_access_patient_details(self):
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse("admin_patient_detail", args=[self.patient.pk])
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_patient_detail_endpoint_does_not_return_non_patient_accounts(self):
+        self.client.force_authenticate(user=self.admin)
+        doctor = CustomUser.objects.create_user(
+            email="not-a-patient@example.com",
+            password="safe-doctor-password",
+            role=CustomUser.Role.DOCTOR,
+        )
+
+        response = self.client.get(reverse("admin_patient_detail", args=[doctor.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+
+class SeedDemoPatientsTests(TestCase):
+    @override_settings(DEBUG=True, DATABASES={"default": {"HOST": "localhost"}})
+    def test_seed_creates_twenty_patients_idempotently_without_doctors_or_appointments(self):
+        call_command("seed_demo_patients", stdout=StringIO())
+        call_command("seed_demo_patients", stdout=StringIO())
+
+        patients = CustomUser.objects.filter(role=CustomUser.Role.PATIENT)
+        self.assertEqual(patients.count(), 20)
+        self.assertEqual(PatientProfile.objects.count(), 20)
+        self.assertEqual(DoctorProfile.objects.count(), 0)
+        self.assertEqual(Appointment.objects.count(), 0)
+        self.assertTrue(
+            patients.filter(email="alberto.ripley@demo-patients.docpoint.test").exists()
+        )
+        self.assertTrue(
+            PatientProfile.objects.filter(
+                user__email="alberto.ripley@demo-patients.docpoint.test",
+                address="4150 Hiney Road, Las Vegas, Nevada 89109",
+                blood_group=PatientProfile.BloodGroup.O_POS,
+            ).exists()
+        )
+
+    @override_settings(
+        DEBUG=True,
+        DATABASES={"default": {"HOST": "remote.example.test"}},
+    )
+    def test_remote_seed_requires_explicit_confirmation(self):
+        with self.assertRaisesMessage(CommandError, "--allow-remote"):
+            call_command("seed_demo_patients")
