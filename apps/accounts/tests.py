@@ -1139,6 +1139,68 @@ class AdminPatientApiTests(TestCase):
             PatientProfile.BloodGroup.A_POS,
         )
 
+    def test_admin_can_update_patient_account_and_profile_fields(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.patch(
+            reverse("admin_patient_detail", args=[self.patient.pk]),
+            {
+                "first_name": "Updated",
+                "last_name": "Patient",
+                "phone_number": "+1 555 0199",
+                "patient_profile": {
+                    "date_of_birth": None,
+                    "gender": PatientProfile.Gender.MALE,
+                    "blood_group": PatientProfile.BloodGroup.O_NEG,
+                    "address": "456 New Street",
+                    "emergency_contact": "+1 555 0111",
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.patient.refresh_from_db()
+        self.patient.patient_profile.refresh_from_db()
+        self.assertEqual(self.patient.first_name, "Updated")
+        self.assertEqual(self.patient.phone_number, "+1 555 0199")
+        self.assertIsNone(self.patient.patient_profile.date_of_birth)
+        self.assertEqual(self.patient.patient_profile.address, "456 New Street")
+        self.assertEqual(self.patient.patient_profile.gender, PatientProfile.Gender.MALE)
+        self.assertEqual(self.patient.patient_profile.blood_group, PatientProfile.BloodGroup.O_NEG)
+
+    def test_admin_can_permanently_delete_patient_and_cascaded_records(self):
+        doctor_user = CustomUser.objects.create_user(
+            email="patient-delete-doctor@example.com",
+            password="safe-doctor-password",
+            role=CustomUser.Role.DOCTOR,
+        )
+        appointment = Appointment.objects.create(
+            patient=self.patient,
+            doctor=doctor_user.doctor_profile,
+            appointment_date=timezone.localdate() + timedelta(days=1),
+            time_slot_start=time(9),
+            time_slot_end=time(9, 30),
+        )
+        medical_record = MedicalRecord.objects.create(
+            patient=self.patient.patient_profile,
+            title="Patient history",
+            recorded_at=timezone.localdate(),
+        )
+        patient_id = self.patient.pk
+        profile_id = self.patient.patient_profile.pk
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.delete(
+            reverse("admin_patient_detail", args=[patient_id])
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(CustomUser.objects.filter(pk=patient_id).exists())
+        self.assertFalse(PatientProfile.objects.filter(pk=profile_id).exists())
+        self.assertFalse(Appointment.objects.filter(pk=appointment.pk).exists())
+        self.assertFalse(MedicalRecord.objects.filter(pk=medical_record.pk).exists())
+
     def test_only_admin_can_access_patient_details(self):
         self.client.force_authenticate(user=self.patient)
 
@@ -1147,6 +1209,16 @@ class AdminPatientApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+        patch_response = self.client.patch(
+            reverse("admin_patient_detail", args=[self.patient.pk]),
+            {"first_name": "Unauthorized"},
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, 403)
+        delete_response = self.client.delete(
+            reverse("admin_patient_detail", args=[self.patient.pk])
+        )
+        self.assertEqual(delete_response.status_code, 403)
 
     def test_patient_detail_endpoint_does_not_return_non_patient_accounts(self):
         self.client.force_authenticate(user=self.admin)
@@ -1159,6 +1231,10 @@ class AdminPatientApiTests(TestCase):
         response = self.client.get(reverse("admin_patient_detail", args=[doctor.pk]))
 
         self.assertEqual(response.status_code, 404)
+        delete_response = self.client.delete(
+            reverse("admin_patient_detail", args=[doctor.pk])
+        )
+        self.assertEqual(delete_response.status_code, 404)
 
 
 class SeedDemoPatientsTests(TestCase):

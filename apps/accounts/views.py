@@ -16,6 +16,7 @@ from apps.accounts.permissions import IsAdminRole, IsPatientRole
 from apps.accounts.serializers import (
     AdminDoctorCreateSerializer,
     AdminPatientListSerializer,
+    AdminPatientUpdateSerializer,
     EmailVerifySerializer,
     ForgotPasswordSerializer,
     AccountCreationResponseSerializer,
@@ -260,6 +261,37 @@ class MedicalRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
         return MedicalRecord.objects.filter(patient=self.request.user.patient_profile)
 
 
+def _admin_patient_queryset():
+    appointment_model = Appointment.AppointmentStatus
+    upcoming_appointments = Appointment.objects.filter(
+        status__in=[
+            appointment_model.PENDING,
+            appointment_model.CONFIRMED,
+        ],
+        appointment_date__gte=timezone.localdate(),
+    ).select_related('doctor__user').order_by('appointment_date', 'time_slot_start')
+    completed_visits = Appointment.objects.filter(
+        status=appointment_model.COMPLETED,
+    ).select_related('doctor__user').order_by('-appointment_date', '-time_slot_start')
+    return (
+        User.objects.filter(role=User.Role.PATIENT)
+        .select_related('patient_profile')
+        .prefetch_related(
+            Prefetch(
+                'patient_appointments',
+                queryset=upcoming_appointments,
+                to_attr='upcoming_patient_appointments',
+            ),
+            Prefetch(
+                'patient_appointments',
+                queryset=completed_visits,
+                to_attr='completed_patient_appointments',
+            ),
+        )
+        .order_by('id')
+    )
+
+
 @extend_schema_view(
     get=extend_schema(
         tags=['Patients'],
@@ -276,43 +308,32 @@ class AdminPatientListView(generics.ListAPIView):
     permission_classes = [IsAdminRole]
 
     def get_queryset(self):
-        appointment_model = Appointment.AppointmentStatus
-        upcoming_appointments = Appointment.objects.filter(
-            status__in=[
-                appointment_model.PENDING,
-                appointment_model.CONFIRMED,
-            ],
-            appointment_date__gte=timezone.localdate(),
-        ).select_related('doctor__user').order_by('appointment_date', 'time_slot_start')
-        completed_visits = Appointment.objects.filter(
-            status=appointment_model.COMPLETED,
-        ).select_related('doctor__user').order_by('-appointment_date', '-time_slot_start')
-        return (
-            User.objects.filter(role=User.Role.PATIENT)
-            .select_related('patient_profile')
-            .prefetch_related(
-                Prefetch(
-                    'patient_appointments',
-                    queryset=upcoming_appointments,
-                    to_attr='upcoming_patient_appointments',
-                ),
-                Prefetch(
-                    'patient_appointments',
-                    queryset=completed_visits,
-                    to_attr='completed_patient_appointments',
-                ),
-            )
-            .order_by('id')
-        )
+        return _admin_patient_queryset()
 
 
 @extend_schema_view(
     get=extend_schema(tags=['Patients'], summary='Get patient details (admin only)'),
+    patch=extend_schema(tags=['Patients'], summary='Update a patient (admin only)'),
+    put=extend_schema(tags=['Patients'], summary='Replace patient details (admin only)'),
+    delete=extend_schema(
+        tags=['Patients'],
+        summary='Permanently delete a patient and related records (admin only)',
+        description=(
+            'Permanently deletes the patient account, profile, appointments, and medical records.'
+        ),
+    ),
 )
-class AdminPatientDetailView(generics.RetrieveAPIView):
+class AdminPatientDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AdminPatientListSerializer
     permission_classes = [IsAdminRole]
-    queryset = User.objects.filter(role='PATIENT').select_related('patient_profile')
+
+    def get_queryset(self):
+        return _admin_patient_queryset()
+
+    def get_serializer_class(self):
+        if self.request.method in {'PATCH', 'PUT'}:
+            return AdminPatientUpdateSerializer
+        return AdminPatientListSerializer
 
 
 @extend_schema_view(

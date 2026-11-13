@@ -69,13 +69,17 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
     def validate_date_of_birth(self, value):
-        if value > timezone.localdate():
+        if value is not None and value > timezone.localdate():
             raise serializers.ValidationError('Date of birth cannot be in the future.')
         return value
 
     def validate(self, attrs):
         protected_fields = {'user', 'role', 'patient', 'profile_complete', 'missing_fields'}
-        supplied_fields = protected_fields.intersection(self.initial_data)
+        initial_data = getattr(self, 'initial_data', None)
+        if initial_data is None:
+            root_initial_data = getattr(self.root, 'initial_data', {})
+            initial_data = root_initial_data.get(self.field_name, {})
+        supplied_fields = protected_fields.intersection(initial_data)
         if supplied_fields:
             raise serializers.ValidationError({
                 field: 'This field cannot be changed through the patient profile API.'
@@ -441,6 +445,32 @@ class AdminPatientListSerializer(serializers.ModelSerializer):
     def get_last_visit(self, patient):
         completed_visits = patient.completed_patient_appointments
         return completed_visits[0].appointment_date if completed_visits else None
+
+
+class AdminPatientUpdateSerializer(serializers.ModelSerializer):
+    patient_profile = PatientProfileSerializer(required=False)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'first_name',
+            'last_name',
+            'phone_number',
+            'patient_profile',
+        ]
+        read_only_fields = ['id']
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('patient_profile', None)
+        if profile_data is not None:
+            profile = instance.patient_profile
+            for field, value in profile_data.items():
+                setattr(profile, field, value)
+            profile.save()
+
+        return super().update(instance, validated_data)
 
 
 class PasswordSetupTokenResponseSerializer(serializers.Serializer):
